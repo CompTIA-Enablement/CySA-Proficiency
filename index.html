@@ -165,6 +165,13 @@
     .print-instructions { background: #f0fdf4; border: 1px solid #86efac; border-radius: var(--radius); padding: 14px 18px; margin-top: 24px; font-size: 14px; color: #166534; line-height: 1.65; }
     .print-instructions strong { color: #15803d; }
 
+    /* ── PRINT-CAPTURE VALUES ──
+       Every ws-ta / ws-in / ws-select gets a paired .print-value element.
+       On screen it stays hidden; right before printing, JS copies the
+       field's current value into it (in full, with line breaks preserved
+       and no height/scroll limits) so nothing typed gets clipped in the PDF. */
+    .print-value { display: none; }
+
     @media print {
       body { background: #fff; font-size: 13px; }
       .sticky-header { display: none !important; }
@@ -172,10 +179,31 @@
       .ws-card { box-shadow: none; border-radius: 0; }
       .prompt-card { break-inside: avoid; }
       .part-section { break-inside: avoid; margin-top: 20px; }
-      textarea.ws-ta { border: 1px solid #ccc; min-height: 60px; background: #fff; }
       .print-instructions, .completion-note, .q4-answer-reminder { display: none; }
       .q4-scenario-body { display: block !important; }
       .q4-scenario-toggle { display: none; }
+
+      /* Hide the live, height-limited form controls in print... */
+      textarea.ws-ta, input.ws-in, select.ws-select { display: none !important; }
+
+      /* ...and show the fully-expanded static copy instead. */
+      .print-value {
+        display: block !important;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 10px 12px;
+        font-family: var(--font);
+        font-size: 13px;
+        line-height: 1.55;
+        color: var(--text);
+        background: #fff;
+        min-height: 18px;
+      }
+      .print-value.empty { color: #999; font-style: italic; }
+      .print-value.select-value { display: inline-block !important; margin-left: 6px; padding: 4px 10px; }
     }
   </style>
 </head>
@@ -183,7 +211,7 @@
 
 <div class="sticky-header">
   <span class="sticky-title">CySA+ Sales Enablement — Proficiency Worksheet</span>
-  <button class="print-btn" onclick="window.print()">
+  <button class="print-btn" id="save-pdf-btn" type="button">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
     Save as PDF
   </button>
@@ -571,6 +599,59 @@ function toggleQ4(head) {
   body.classList.toggle('open');
   toggle.textContent = isOpen ? '▼ Read scenario' : '▲ Close';
 }
+
+/* ── PRINT CAPTURE ──
+   Right before the page prints, copy the live value of every textarea,
+   text input, and select into a plain static element placed right after
+   it. That static copy has no fixed height and no scrolling, so the full
+   text — no matter how long — is guaranteed to appear in the printed PDF.
+   The live controls are hidden in print via CSS; the static copies are
+   shown only in print via CSS. Nothing changes on screen. */
+function getOrCreatePrintValue(el, extraClass) {
+  var pv = el.nextElementSibling;
+  if (!pv || !pv.classList || !pv.classList.contains('print-value')) {
+    pv = document.createElement('div');
+    pv.className = 'print-value' + (extraClass ? ' ' + extraClass : '');
+    el.parentNode.insertBefore(pv, el.nextSibling);
+  }
+  return pv;
+}
+
+function captureAllFieldsForPrint() {
+  // Text areas and single-line text inputs
+  document.querySelectorAll('textarea.ws-ta, input.ws-in, input.learner-input:not([readonly])').forEach(function (el) {
+    var pv = getOrCreatePrintValue(el);
+    var val = (el.value || '').trim();
+    if (val.length) {
+      pv.textContent = val;
+      pv.classList.remove('empty');
+    } else {
+      pv.textContent = '(No response provided)';
+      pv.classList.add('empty');
+    }
+  });
+
+  // Dropdowns
+  document.querySelectorAll('select.ws-select').forEach(function (el) {
+    var pv = getOrCreatePrintValue(el, 'select-value');
+    var val = el.value;
+    if (val && val.length) {
+      pv.textContent = val;
+      pv.classList.remove('empty');
+    } else {
+      pv.textContent = '(Not answered)';
+      pv.classList.add('empty');
+    }
+  });
+}
+
+// Catch every path to printing: the button, Ctrl/Cmd+P, and the browser's
+// native beforeprint event (covers Firefox/Safari print-preview flows too).
+window.addEventListener('beforeprint', captureAllFieldsForPrint);
+document.getElementById('save-pdf-btn').addEventListener('click', function () {
+  captureAllFieldsForPrint();
+  window.print();
+});
 </script>
 
 </body>
